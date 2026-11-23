@@ -183,50 +183,6 @@ function useLocation() {
   return { pos, status, locate };
 }
 
-/* ---------- Hook: reviews (talks to server.js) ---------- */
-function useReviews() {
-  const [reviews, setReviews] = useState([]);
-  const [status, setStatus] = useState("loading"); // loading | ok | offline
-
-  useEffect(() => {
-    fetch("/api/reviews")
-      .then((res) => {
-        if (!res.ok) throw new Error("no server");
-        return res.json();
-      })
-      .then((data) => {
-        setReviews(data);
-        setStatus("ok");
-      })
-      .catch(() => setStatus("offline"));
-  }, []);
-
-  async function addReview(review) {
-    const res = await fetch("/api/reviews", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(review),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "Could not save your review.");
-    setReviews((prev) => [data, ...prev]);
-  }
-
-  // Average rating and number of reviews for each cafe
-  const stats = useMemo(() => {
-    const result = {};
-    reviews.forEach((r) => {
-      const entry = result[r.cafeId] || (result[r.cafeId] = { sum: 0, count: 0, avg: 0 });
-      entry.sum += r.rating;
-      entry.count += 1;
-      entry.avg = entry.sum / entry.count;
-    });
-    return result;
-  }, [reviews]);
-
-  return { reviews, status, addReview, stats };
-}
-
 /* ---------- Hook: dark / light theme ---------- */
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -335,21 +291,12 @@ function CafeImage({ cafe, tall }) {
   );
 }
 
-function Rating({ stat }) {
-  if (!stat) return <span className="rating-none">No reviews yet</span>;
-  return (
-    <span className="rating">
-      ★ {stat.avg.toFixed(1)} <small>({stat.count})</small>
-    </span>
-  );
-}
-
-function CafeCard({ cafe, stat, onOpenReviews }) {
+function CafeCard({ cafe, onOpen }) {
   const now = new Date();
   const openNow = isOpenAt(cafe, now.getHours() + now.getMinutes() / 60);
 
   return (
-    <article className="card clickable" onClick={() => onOpenReviews(cafe.id)}>
+    <article className="card clickable" onClick={() => onOpen(cafe.id)}>
       <CafeImage cafe={cafe} />
 
       <div className="card-body">
@@ -360,7 +307,6 @@ function CafeCard({ cafe, stat, onOpenReviews }) {
 
         <div className="card-meta">
           <p className="area">📍 {cafe.area}, {cafe.city}</p>
-          <Rating stat={stat} />
           {cafe.distance != null && <span className="distance">{formatDistance(cafe.distance)}</span>}
         </div>
 
@@ -382,7 +328,7 @@ function CafeCard({ cafe, stat, onOpenReviews }) {
         </ul>
 
         <div className="card-actions">
-          <button type="button" className="btn solid" onClick={() => onOpenReviews(cafe.id)}>
+          <button type="button" className="btn solid" onClick={() => onOpen(cafe.id)}>
             View details
           </button>
           <a className="btn" href={directionsUrl(cafe)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
@@ -394,16 +340,10 @@ function CafeCard({ cafe, stat, onOpenReviews }) {
   );
 }
 
-function CafeDetail({ cafe, reviews, stat, serverStatus, onClose, onSubmit }) {
+function CafeDetail({ cafe, onClose }) {
   const now = new Date();
   const openNow = isOpenAt(cafe, now.getHours() + now.getMinutes() / 60);
   const activities = getActivities(cafe);
-
-  const [name, setName] = useState("");
-  const [rating, setRating] = useState(0);
-  const [comment, setComment] = useState("");
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
 
   // Close with the Escape key
   useEffect(() => {
@@ -414,24 +354,6 @@ function CafeDetail({ cafe, reviews, stat, serverStatus, onClose, onSubmit }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!name.trim()) return setError("Please enter your name.");
-    if (!rating) return setError("Please choose a star rating.");
-
-    setSaving(true);
-    setError("");
-    try {
-      await onSubmit({ cafeId: cafe.id, name: name.trim(), rating, comment: comment.trim() });
-      setName("");
-      setRating(0);
-      setComment("");
-    } catch (err) {
-      setError(err.message);
-    }
-    setSaving(false);
-  }
-
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal wide" role="dialog" aria-modal="true" aria-label={`Details for ${cafe.name}`} onClick={(e) => e.stopPropagation()}>
@@ -440,7 +362,6 @@ function CafeDetail({ cafe, reviews, stat, serverStatus, onClose, onSubmit }) {
             <h2>{cafe.name}</h2>
             <div className="card-meta">
               <p className="area">📍 {cafe.area}, {cafe.city}</p>
-              <Rating stat={stat} />
               <span className={openNow ? "badge open" : "badge closed"}>{openNow ? "Open now" : "Closed"}</span>
             </div>
           </div>
@@ -490,68 +411,6 @@ function CafeDetail({ cafe, reviews, stat, serverStatus, onClose, onSubmit }) {
         <a className="btn solid open-maps" href={directionsUrl(cafe)} target="_blank" rel="noopener noreferrer">
           Open in Google Maps
         </a>
-
-        <h3 className="section-title">Reviews</h3>
-        {reviews.length === 0 ? (
-          <p className="area" style={{ margin: "16px 0" }}>No reviews yet. Be the first to write one.</p>
-        ) : (
-          <ul className="review-list">
-            {reviews.map((r) => (
-              <li className="review" key={r.id}>
-                <div className="review-top">
-                  <strong>{r.name}</strong>
-                  <span className="review-stars" aria-label={`${r.rating} out of 5 stars`}>
-                    {"★".repeat(r.rating)}{"☆".repeat(5 - r.rating)}
-                  </span>
-                </div>
-                {r.comment && <p>{r.comment}</p>}
-                <span className="review-date">{new Date(r.date).toLocaleDateString()}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {serverStatus === "ok" ? (
-          <form className="review-form" onSubmit={handleSubmit}>
-            <h3>Write a review</h3>
-            <input
-              type="text"
-              placeholder="Your name"
-              maxLength={40}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <div className="star-picker" role="radiogroup" aria-label="Star rating">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={n <= rating ? "on" : ""}
-                  onClick={() => setRating(n)}
-                  aria-label={`${n} star${n === 1 ? "" : "s"}`}
-                >
-                  ★
-                </button>
-              ))}
-            </div>
-            <textarea
-              placeholder="What did you think? (optional)"
-              maxLength={500}
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-            />
-            {error && <p className="form-error">{error}</p>}
-            <button type="submit" className="btn solid" disabled={saving}>
-              {saving ? "Saving..." : "Submit review"}
-            </button>
-          </form>
-        ) : (
-          <p className="offline-note">
-            {serverStatus === "loading"
-              ? "Loading reviews..."
-              : "Reviews need the server. Stop the page, open a terminal in your project folder, run  node server.js  and open http://localhost:3000"}
-          </p>
-        )}
       </div>
     </div>
   );
@@ -627,12 +486,11 @@ function App() {
   const [sortNearest, setSortNearest] = useState(false);
   const { query, setQuery, filter, setFilter, results } = useCafeSearch(pos, sortNearest);
   const { theme, toggleTheme } = useTheme();
-  const { reviews, status: reviewStatus, addReview, stats } = useReviews();
   const [view, setView] = useState("list"); // list | map
-  const [reviewCafeId, setReviewCafeId] = useState(null);
+  const [openCafeId, setOpenCafeId] = useState(null);
   const imageFiles = useImageList();
 
-  const reviewCafe = cafes.find((c) => c.id === reviewCafeId);
+  const openCafe = cafes.find((c) => c.id === openCafeId);
   const missingOnMap = results.filter((c) => c.lat == null).length;
 
   function toggleNearest() {
@@ -719,7 +577,7 @@ function App() {
         {view === "list" ? (
           <section className="grid" aria-label="Cafe results">
             {results.map((cafe) => (
-              <CafeCard key={cafe.id} cafe={cafe} stat={stats[cafe.id]} onOpenReviews={setReviewCafeId} />
+              <CafeCard key={cafe.id} cafe={cafe} onOpen={setOpenCafeId} />
             ))}
           </section>
         ) : (
@@ -741,15 +599,11 @@ function App() {
         <p>Timings can change, so check with the cafe before you go.</p>
       </footer>
 
-      {reviewCafe && (
+      {openCafe && (
         <CafeDetail
-          key={reviewCafe.id}
-          cafe={reviewCafe}
-          stat={stats[reviewCafe.id]}
-          reviews={reviews.filter((r) => r.cafeId === reviewCafe.id)}
-          serverStatus={reviewStatus}
-          onClose={() => setReviewCafeId(null)}
-          onSubmit={addReview}
+          key={openCafe.id}
+          cafe={openCafe}
+          onClose={() => setOpenCafeId(null)}
         />
       )}
     </div>

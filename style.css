@@ -814,6 +814,18 @@ button.btn {
 /* ---------- Phone fixes ---------- */
 html {
   -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* no pinch zoom or double-tap zoom anywhere on the page (the map still zooms, it handles touches itself) */
+html,
+body {
+  touch-action: pan-x pan-y;
+}
+
+/* 16px text in the search box so phones never zoom in when you tap it */
+.search input {
+  font-size: 16px;
 }
 
 .app {
